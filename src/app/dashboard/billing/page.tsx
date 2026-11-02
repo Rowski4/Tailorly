@@ -11,7 +11,7 @@ export const metadata = { title: "Billing — Tailorly" };
 export default async function BillingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ session_id?: string; canceled?: string; plan?: string }>;
+  searchParams: Promise<{ session_id?: string; canceled?: string; plan?: string; error?: string }>;
 }) {
   let user = await requireUser();
   const sp = await searchParams;
@@ -31,6 +31,14 @@ export default async function BillingPage({
       console.error(e);
       notice = { kind: "warn", text: "We couldn't confirm that payment yet. Refresh in a moment." };
     }
+  } else if (sp.error) {
+    const messages: Record<string, string> = {
+      portal_setup: "Subscription management isn't available yet (the Stripe Customer portal hasn't been activated). Please try again later.",
+      no_customer: "There's no active subscription on this account yet. Choose a plan below.",
+      stripe_key: "Payments are temporarily unavailable. Please try again later.",
+      stripe: "Something went wrong talking to our payment provider. Please try again.",
+    };
+    notice = { kind: "warn", text: messages[sp.error] ?? messages.stripe };
   } else if (sp.canceled) {
     notice = { kind: "warn", text: "Checkout canceled — you weren't charged." };
   } else if (sp.plan && isPlanId(sp.plan) && sp.plan !== "free") {

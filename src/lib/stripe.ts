@@ -16,6 +16,48 @@ export function appUrl(req: Request): string {
   return process.env.APP_URL?.replace(/\/$/, "") || new URL(req.url).origin;
 }
 
+/**
+ * Return a Stripe customer ID that exists in the current Stripe environment.
+ * A saved ID can be stale if the Stripe key was switched (e.g. sandbox -> live), so verify it and recreate if needed.
+ */
+export async function ensureCustomer(user: { id: string; email: string; name: string | null; stripe_customer_id: string | null }) {
+  if (user.stripe_customer_id) {
+    try {
+      const c = await stripe().customers.retrieve(user.stripe_customer_id);
+      if (!("deleted" in c && c.deleted)) return user.stripe_customer_id;
+    } catch (e) {
+      if (!(e instanceof Stripe.errors.StripeInvalidRequestError && e.code === "resource_missing")) throw e;
+    }
+    // Stale customer from another Stripe environment: forget it and its subscription.
+    await sql()`UPDATE users SET stripe_customer_id = NULL, stripe_subscription_id = NULL WHERE id = ${user.id}`;
+  }
+  const customer = await stripe().customers.create({ email: user.email, name: user.name ?? undefined, metadata: { userId: user.id } });
+  await sql()`UPDATE users SET stripe_customer_id = ${customer.id} WHERE id = ${user.id}`;
+  return customer.id;
+}
+
+/** Customer ID if it exists in the current Stripe environment, else null (and the stale ID is cleared). */
+export async function existingCustomer(user: { id: string; stripe_customer_id: string | null }) {
+  if (!user.stripe_customer_id) return null;
+  try {
+    const c = await stripe().customers.retrieve(user.stripe_customer_id);
+    if (!("deleted" in c && c.deleted)) return user.stripe_customer_id;
+  } catch (e) {
+    if (!(e instanceof Stripe.errors.StripeInvalidRequestError && e.code === "resource_missing")) throw e;
+  }
+  await sql()`UPDATE users SET stripe_customer_id = NULL, stripe_subscription_id = NULL WHERE id = ${user.id}`;
+  return null;
+}
+
+/** Map a Stripe error to a short code the billing page can explain. */
+export function stripeErrorCode(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  console.error("Stripe error:", msg);
+  if (/portal|configuration/i.test(msg)) return "portal_setup";
+  if (/api key|authentication/i.test(msg)) return "stripe_key";
+  return "stripe";
+}
+
 const ACTIVE = new Set(["active", "trialing", "past_due"]);
 
 /** Write a subscription's state onto the user it belongs to. */

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { ensureDb, databaseUrl } from "@/lib/db";
+import { stripe } from "@/lib/stripe";
 
 export const dynamic = "force-dynamic";
 
@@ -20,5 +21,12 @@ export async function GET() {
   } catch (e) {
     database = `error: ${(e as Error).message.slice(0, 200)}`;
   }
-  return NextResponse.json({ env, database });
+  let stripePortal = "unknown";
+  try {
+    const configs = await stripe().billingPortal.configurations.list({ limit: 10 });
+    stripePortal = configs.data.some((c) => c.active) ? "active" : "not activated";
+  } catch (e) {
+    stripePortal = `error: ${(e as Error).message.slice(0, 120)}`;
+  }
+  return NextResponse.json({ env, database, stripePortal });
 }

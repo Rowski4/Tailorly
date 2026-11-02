@@ -1,11 +1,19 @@
 import { neon } from "@neondatabase/serverless";
 import bcrypt from "bcryptjs";
 
+/** Neon's Vercel integration may use a custom prefix (e.g. STORAGE_DATABASE_URL), so accept those too. */
+export function databaseUrl(): string | undefined {
+  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
+  if (process.env.POSTGRES_URL) return process.env.POSTGRES_URL;
+  const key = Object.keys(process.env).find((k) => k.endsWith("_DATABASE_URL") || k.endsWith("_POSTGRES_URL"));
+  return key ? process.env[key] : undefined;
+}
+
 let _sql: ReturnType<typeof neon> | null = null;
 
 export function sql() {
   if (!_sql) {
-    const url = process.env.DATABASE_URL;
+    const url = databaseUrl();
     if (!url) throw new Error("DATABASE_URL is not set");
     _sql = neon(url);
   }
